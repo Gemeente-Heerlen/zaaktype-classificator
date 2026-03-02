@@ -955,10 +955,41 @@
           if (wp.k?.toLowerCase().includes(w)) score += 3;
           if (wp.tv?.toLowerCase().includes(w)) score += 2;
           if (wp.th?.toLowerCase().includes(w)) score += 2;
+          if (wp.to?.toLowerCase().includes(w)) score += 3;
         }
         return { wp, score };
       });
       return scored.filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, n).map(x => x.wp);
+    }
+
+    async function semanticSearch(docText) {
+      const compactList = WP.map(wp => `${wp.id}:${wp.k}${wp.tv ? ' (' + wp.tv + ')' : ''}`).join('\n');
+      const selPrompt = `Je bent een expert in gemeentelijke zaaktypecatalogi (model-DSP) voor Gemeente Heerlen.
+
+Lees het onderstaande document en selecteer de 40 werkprocessen die het beste aansluiten bij de inhoud en context van dit document. Kijk naar semantische overeenkomsten, niet alleen naar losse trefwoorden.
+
+DOCUMENT:
+${docText.slice(0, 2500)}
+
+WERKPROCESSEN (formaat: ID:naam (taakveld)):
+${compactList}
+
+Antwoord UITSLUITEND als geldig JSON, geen andere tekst:
+{"ids":["B0001","B0002",...]}`;
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 600, messages: [{ role: 'user', content: selPrompt }] })
+      });
+      const d = await r.json();
+      if (!r.ok) { logRateLimit(r); throw new Error(`API-fout bij voorselectie: ${d.error?.message || r.status}`); }
+      const raw = d.content?.[0]?.text || '{}';
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('Ongeldig antwoord bij voorselectie');
+      const ids = new Set((JSON.parse(m[0]).ids || []));
+      const selected = WP.filter(wp => ids.has(wp.id));
+      if (selected.length < 5) throw new Error(`Te weinig resultaten (${selected.length})`);
+      return selected;
     }
 
     const DEFAULT_PROMPT_TEMPLATE = `Je bent een expert in gemeentelijke zaaktypecatalogi (model-DSP) voor Gemeente Heerlen.
@@ -986,7 +1017,7 @@ Analyseer dit document en bepaal het beste werkproces/zaaktype uit de kandidaten
     });
 
     function buildPrompt(docText, cands) {
-      const list = cands.map(wp => `ID:${wp.id}|Kern:${wp.k}|Taakveld:${wp.tv || ''}|Zaaktype:${wp.zn || wp.k}|Waardering:${wp.w || '?'}|Bewaartermijn:${wp.bt || 'n.v.t.'}|Ingang:${wp.ig || '?'}|Archiefcode:${wp.ac || '?'}|Grondslag:${wp.ga || '?'}|Privacy:${wp.pc || '?'}`).join('\n');
+      const list = cands.map(wp => `ID:${wp.id}|Kern:${wp.k}|Taakveld:${wp.tv || ''}|Zaaktype:${wp.zn || wp.k}|Toelichting:${(wp.to || '').slice(0, 200)}|Waardering:${wp.w || '?'}|Bewaartermijn:${wp.bt || 'n.v.t.'}|Ingang:${wp.ig || '?'}|Archiefcode:${wp.ac || '?'}|Grondslag:${wp.ga || '?'}|Privacy:${wp.pc || '?'}`).join('\n');
       return `${getPromptTemplate()}
 
 DOCUMENT:
@@ -1251,10 +1282,17 @@ Antwoord UITSLUITEND als geldig JSON, geen andere tekst:
         docDate = extractDocumentDate(docText);
         log(`Tekst beschikbaar — ${docText.trim().split(/\s+/).length} woorden${docDate ? ' · datum: ' + formatDutchDate(docDate) : ''}`, 'ok');
 
-        log(`Trefwoordzoeking in ${WP.length.toLocaleString('nl-NL')} werkprocessen...`);
-        const cands = kwSearch(docText, 40);
+        log(`Semantische voorselectie uit ${WP.length.toLocaleString('nl-NL')} werkprocessen via Claude...`);
+        let cands;
+        try {
+          cands = await semanticSearch(docText);
+          log(`${cands.length} kandidaten semantisch geselecteerd`, 'ok');
+        } catch (semErr) {
+          log(`Semantische voorselectie mislukt (${semErr.message}) — terugval op trefwoordzoeking`, 'dim');
+          cands = kwSearch(docText, 40);
+          log(`${cands.length} kandidaten geselecteerd via trefwoorden`, 'ok');
+        }
         if (!cands.length) throw new Error('Geen kandidaat-werkprocessen gevonden.');
-        log(`${cands.length} kandidaten geselecteerd voor AI-analyse`, 'ok');
 
         log(`Claude beoordeelt kandidaten en kiest top 3...`);
         const r2 = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: buildPrompt(docText, cands) }] }) });
