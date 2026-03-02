@@ -678,6 +678,67 @@
       background: #f59e0b15;
       border: 1px solid #f59e0b40
     }
+
+    .debug-panel {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-family: var(--mono);
+      font-size: 12px;
+      display: none
+    }
+
+    .debug-panel.on { display: block }
+
+    .debug-entry {
+      border-top: 1px solid #1e293b;
+      padding: 6px 0
+    }
+
+    .debug-entry:first-child { border-top: none }
+
+    .debug-entry summary {
+      cursor: pointer;
+      color: #94a3b8;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 2px 0
+    }
+
+    .debug-entry summary::-webkit-details-marker { display: none }
+
+    .debug-entry[open] summary { color: #e2e8f0 }
+
+    .debug-status { font-size: 10px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0 }
+    .debug-status.ok  { background: #05966920; color: #34d399; border: 1px solid #05966940 }
+    .debug-status.err { background: #dc262620; color: #f87171; border: 1px solid #dc262640 }
+
+    .debug-block { margin-top: 6px }
+
+    .debug-label {
+      font-size: 10px;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 3px
+    }
+
+    .debug-pre {
+      background: #1e293b;
+      border-radius: 4px;
+      padding: 8px 10px;
+      color: #94a3b8;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 300px;
+      overflow-y: auto;
+      font-size: 11px;
+      line-height: 1.5
+    }
   </style>
 </head>
 
@@ -694,20 +755,21 @@
 
   <div class="apikey-bar">
     <span>ANTHROPIC API-SLEUTEL</span>
-    <input class="apikey-input" type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+    <input class="apikey-input" type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="one-time-code" spellcheck="false">
     <span class="apikey-status missing" id="apikey-status">Niet ingesteld</span>
     <span id="apikey-saved" style="font-size:11px;color:var(--green);opacity:0;transition:opacity .3s">Opgeslagen ✓</span>
     <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener"
       style="font-size:11px;color:var(--accent);font-family:var(--mono);text-decoration:none;border:1px solid var(--accent)40;padding:3px 8px;border-radius:4px;white-space:nowrap;margin-left:auto">
       + Sleutel aanmaken ↗
     </a>
+    <button class="btn-ghost" id="debug-btn" onclick="toggleDebug()" style="margin-left:12px;font-size:11px;padding:3px 10px;opacity:.5">Debug</button>
   </div>
 
   <div class="main">
     <div class="upload-zone" id="upload-zone">
       <div style="font-size:40px;margin-bottom:12px">📄</div>
       <div style="font-size:18px;color:var(--text2)">Sleep een PDF of Word-document hierheen of klik om te bladeren</div>
-      <div style="font-size:12px;color:var(--text4);font-family:monospace;margin-top:6px">PDF of .docx bestanden</div>
+      <div style="font-size:12px;color:var(--text4);font-family:monospace;margin-top:6px">.pdf- of .docx-bestanden</div>
       <input type="file" id="file-input" accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">
     </div>
     <details class="prompt-panel" id="prompt-panel">
@@ -723,6 +785,13 @@
         </div>
       </div>
     </details>
+    <div class="debug-panel" id="debug-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="color:#7c3aed;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:1px">▸ DEBUG — API verzoeken &amp; antwoorden</span>
+        <button class="btn-ghost" onclick="document.getElementById('debug-entries').innerHTML=''" style="font-size:11px;padding:2px 8px;border-color:#334155;color:#64748b">Wis</button>
+      </div>
+      <div id="debug-entries"></div>
+    </div>
     <div class="log-panel" id="log-panel"></div>
     <div class="error-box" id="error-box"></div>
     <div id="results">
@@ -932,6 +1001,57 @@
       }
     }
 
+    let debugMode = false;
+    function toggleDebug() {
+      debugMode = !debugMode;
+      document.getElementById('debug-panel').classList.toggle('on', debugMode);
+      const btn = document.getElementById('debug-btn');
+      btn.style.opacity = debugMode ? '1' : '.5';
+      btn.style.color = debugMode ? 'var(--purple)' : '';
+      btn.style.borderColor = debugMode ? 'var(--purple)' : '';
+    }
+
+    function debugLog(label, reqBody, status, resData) {
+      if (!debugMode) return;
+      const ok = status >= 200 && status < 300;
+      const ts = new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const entry = document.createElement('details');
+      entry.className = 'debug-entry';
+      entry.open = true;
+      const msgs = reqBody?.messages || [];
+      const reqSummary = msgs.map(m => {
+        const c = Array.isArray(m.content) ? m.content.map(p => p.text || `[${p.type}]`).join(' ') : m.content;
+        return `${m.role}: ${String(c).slice(0, 120)}${String(c).length > 120 ? '…' : ''}`;
+      }).join('\n');
+      entry.innerHTML = `
+        <summary>
+          <span class="debug-status ${ok ? 'ok' : 'err'}">${status}</span>
+          <span style="color:#7c3aed">${ts}</span>
+          <span>${label}</span>
+          <span style="color:#475569;margin-left:auto">${reqBody?.model || ''} · max_tokens:${reqBody?.max_tokens || '?'}</span>
+        </summary>
+        <div class="debug-block">
+          <div class="debug-label">Verzoek</div>
+          <div class="debug-pre">${escHtml(reqSummary)}</div>
+        </div>
+        <div class="debug-block" style="margin-top:6px">
+          <div class="debug-label">Antwoord</div>
+          <div class="debug-pre">${escHtml(JSON.stringify(resData, null, 2))}</div>
+        </div>`;
+      const container = document.getElementById('debug-entries');
+      container.prepend(entry);
+    }
+
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+    async function apiFetch(url, opts, label) {
+      const res = await fetch(url, opts);
+      if (debugMode) {
+        res.clone().json().then(data => debugLog(label, JSON.parse(opts.body), res.status, data)).catch(() => {});
+      }
+      return res;
+    }
+
     let WP = [];
     async function init() {
       try {
@@ -980,11 +1100,8 @@ ${compactList}
 
 Antwoord UITSLUITEND als geldig JSON, geen andere tekst:
 {"ids":["B0001","B0002",...]}`;
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: apiHeaders(),
-        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 600, messages: [{ role: 'user', content: selPrompt }] })
-      });
+      const body = JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 600, messages: [{ role: 'user', content: selPrompt }] });
+      const r = await apiFetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: apiHeaders(), body }, 'Voorselectie');
       const d = await r.json();
       if (!r.ok) { logRateLimit(r); throw new Error(`API-fout bij voorselectie: ${d.error?.message || r.status}`); }
       const raw = d.content?.[0]?.text || '{}';
@@ -1274,7 +1391,7 @@ Antwoord UITSLUITEND als geldig JSON, geen andere tekst:
         let docText;
         if (fileType === 'pdf') {
           log('Tekst extraheren via Claude API...');
-          const r1 = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }, { type: 'text', text: 'Extraheer alle tekst uit dit document. Geef alleen platte tekst terug, geen opmaak.' }] }] }) });
+          const r1 = await apiFetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }, { type: 'text', text: 'Extraheer alle tekst uit dit document. Geef alleen platte tekst terug, geen opmaak.' }] }] }) }, 'Tekstextractie PDF');
           const d1 = await r1.json();
           if (!r1.ok) { logRateLimit(r1); throw new Error(`API-fout bij tekstextractie: ${d1.error?.message || r1.status + ' ' + r1.statusText}`); }
           docText = d1.content?.[0]?.text || '';
@@ -1301,7 +1418,7 @@ Antwoord UITSLUITEND als geldig JSON, geen andere tekst:
         if (!cands.length) throw new Error('Geen kandidaat-werkprocessen gevonden.');
 
         log(`Claude beoordeelt kandidaten en kiest top 3...`);
-        const r2 = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: buildPrompt(docText, cands) }] }) });
+        const r2 = await apiFetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: buildPrompt(docText, cands) }] }) }, 'Classificatie');
         const d2 = await r2.json();
         if (!r2.ok) { logRateLimit(r2); throw new Error(`API-fout bij classificatie: ${d2.error?.message || r2.status + ' ' + r2.statusText}`); }
         const raw = d2.content?.[0]?.text || '{}';
