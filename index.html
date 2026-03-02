@@ -816,6 +816,20 @@
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
 
+    async function extractPdfTextLocally() {
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+      const parts = [];
+      for (let n = 1; n <= pdf.numPages; n++) {
+        const page = await pdf.getPage(n);
+        const tc = await page.getTextContent();
+        parts.push(tc.items.map(i => i.str).join(' '));
+      }
+      return parts.join('\n');
+    }
+
     async function renderPdfSection(wp) {
       const section = document.getElementById('pdf-section');
       const pagesEl = document.getElementById('pdf-pages');
@@ -1390,12 +1404,16 @@ Antwoord UITSLUITEND als geldig JSON, geen andere tekst:
       try {
         let docText;
         if (fileType === 'pdf') {
-          log('Tekst extraheren via Claude API...');
-          const r1 = await apiFetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }, { type: 'text', text: 'Extraheer alle tekst uit dit document. Geef alleen platte tekst terug, geen opmaak.' }] }] }) }, 'Tekstextractie PDF');
-          const d1 = await r1.json();
-          if (!r1.ok) { logRateLimit(r1); throw new Error(`API-fout bij tekstextractie: ${d1.error?.message || r1.status + ' ' + r1.statusText}`); }
-          docText = d1.content?.[0]?.text || '';
-          if (!docText.trim()) throw new Error('Geen tekst gevonden in de PDF. Mogelijk een gescand document zonder OCR.');
+          log('Tekst extraheren via pdf.js...');
+          docText = await extractPdfTextLocally();
+          if (!docText.trim()) {
+            log('Geen tekst gevonden lokaal — gescand document? Tekst extraheren via Claude API...');
+            const r1 = await apiFetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }, { type: 'text', text: 'Extraheer alle tekst uit dit document. Geef alleen platte tekst terug, geen opmaak.' }] }] }) }, 'Tekstextractie PDF (OCR)');
+            const d1 = await r1.json();
+            if (!r1.ok) { logRateLimit(r1); throw new Error(`API-fout bij tekstextractie: ${d1.error?.message || r1.status + ' ' + r1.statusText}`); }
+            docText = d1.content?.[0]?.text || '';
+            if (!docText.trim()) throw new Error('Geen tekst gevonden in de PDF. Mogelijk een gescand document zonder OCR.');
+          }
         } else {
           docText = extractedDocText;
           if (!docText.trim()) throw new Error('Geen tekst gevonden in het Word-document.');
