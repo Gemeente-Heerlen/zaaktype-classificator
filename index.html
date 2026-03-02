@@ -710,7 +710,7 @@
       <div style="font-size:12px;color:var(--text4);font-family:monospace;margin-top:6px">PDF of .docx bestanden</div>
       <input type="file" id="file-input" accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">
     </div>
-    <details class="prompt-panel" id="prompt-panel" open>
+    <details class="prompt-panel" id="prompt-panel">
       <summary class="prompt-toggle">⚙ Prompt aanpassen</summary>
       <div class="prompt-body">
         <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:10px;line-height:1.6">
@@ -754,13 +754,15 @@
       section.classList.add('on');
 
       // Woorden uit het beste zaaktype die als overeenkomst gelden
-      const hlWords = [wp.k, wp.tv, wp.th, wp.zn, wp.to]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .replace(/[.,;:!?()\[\]{}\/"'@#\n\r]/g, ' ')
-        .split(/\s+/)
-        .filter(w => w.length > 3 && !STOP.has(w));
+      const hlWords = wp.trefwoorden?.length
+        ? wp.trefwoorden.map(w => w.toLowerCase()).filter(w => w.length > 2)
+        : [wp.k, wp.tv, wp.th, wp.zn, wp.to]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+            .replace(/[.,;:!?()\[\]{}\/"'@#\n\r]/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 3 && !STOP.has(w));
 
       if (!hlWords.length || typeof pdfjsLib === 'undefined') {
         pagesEl.innerHTML = '<div style="font-family:var(--mono);font-size:12px;color:var(--text4);padding:8px">PDF-weergave niet beschikbaar.</div>';
@@ -852,13 +854,15 @@
         return;
       }
 
-      const hlWords = [wp.k, wp.tv, wp.th, wp.zn, wp.to]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .replace(/[.,;:!?()\[\]{}\/"'@#\n\r]/g, ' ')
-        .split(/\s+/)
-        .filter(w => w.length > 3 && !STOP.has(w));
+      const hlWords = wp.trefwoorden?.length
+        ? wp.trefwoorden.map(w => w.toLowerCase()).filter(w => w.length > 2)
+        : [wp.k, wp.tv, wp.th, wp.zn, wp.to]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+            .replace(/[.,;:!?()\[\]{}\/"'@#\n\r]/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 3 && !STOP.has(w));
 
       const wrap = document.createElement('div');
       wrap.className = 'doc-content';
@@ -1027,7 +1031,9 @@ KANDIDATEN (${cands.length} stuks):
 ${list}
 
 Antwoord UITSLUITEND als geldig JSON, geen andere tekst:
-{"top3":[{"id":"BXXXX","zekerheid":85,"uitleg":"Max 2 zinnen"},{"id":"BXXXX","zekerheid":60,"uitleg":"..."},{"id":"BXXXX","zekerheid":40,"uitleg":"..."}],"samenvatting":"Wat voor document dit is in één zin"}`;
+{"top3":[{"id":"BXXXX","zekerheid":85,"uitleg":"Max 2 zinnen","trefwoorden":["term1","term2","term3"]},{"id":"BXXXX","zekerheid":60,"uitleg":"...","trefwoorden":[]},{"id":"BXXXX","zekerheid":40,"uitleg":"...","trefwoorden":[]}],"samenvatting":"Wat voor document dit is in één zin"}
+
+"trefwoorden" zijn max. 15 sleuteltermen die letterlijk in het document voorkomen en de match met het zaaktype verklaren.`;
     }
 
     const BIV = { 'Laag (1)': '#10b981', 'Midden (2)': '#f59e0b', 'Hoog (3)': '#ef4444' };
