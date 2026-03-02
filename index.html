@@ -571,6 +571,66 @@
       vertical-align: middle
     }
 
+    .prompt-panel {
+      margin-bottom: 20px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden
+    }
+
+    .prompt-toggle {
+      padding: 10px 16px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text3);
+      cursor: pointer;
+      user-select: none;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px
+    }
+
+    .prompt-toggle::-webkit-details-marker { display: none }
+    .prompt-panel[open] .prompt-toggle { color: var(--accent) }
+
+    .prompt-body {
+      padding: 14px 16px;
+      border-top: 1px solid var(--border)
+    }
+
+    .prompt-textarea {
+      width: 100%;
+      min-height: 220px;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      resize: vertical;
+      outline: none;
+      line-height: 1.6;
+      tab-size: 2
+    }
+
+    .prompt-textarea:focus { border-color: var(--accent) }
+
+    .btn-ghost {
+      padding: 6px 14px;
+      background: transparent;
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      color: var(--text3);
+      cursor: pointer;
+      font-size: 12px;
+      font-family: var(--mono)
+    }
+
+    .btn-ghost:hover { background: var(--bg3) }
+
     .apikey-bar {
       background: var(--bg2);
       border-bottom: 1px solid var(--border);
@@ -650,6 +710,19 @@
       <div style="font-size:12px;color:var(--text4);font-family:monospace;margin-top:6px">PDF of .docx bestanden</div>
       <input type="file" id="file-input" accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">
     </div>
+    <details class="prompt-panel" id="prompt-panel" open>
+      <summary class="prompt-toggle">⚙ Prompt aanpassen</summary>
+      <div class="prompt-body">
+        <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:10px;line-height:1.6">
+          Pas de instructie aan die aan Claude wordt meegegeven. De documenttekst, kandidaten en het verwachte JSON-formaat worden automatisch toegevoegd. Wijzigingen worden lokaal opgeslagen.
+        </div>
+        <textarea id="prompt-textarea" class="prompt-textarea" spellcheck="false"></textarea>
+        <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;align-items:center">
+          <span id="prompt-saved" style="font-size:11px;color:var(--green);font-family:var(--mono);opacity:0;transition:opacity .3s">Opgeslagen ✓</span>
+          <button class="btn-ghost" onclick="resetPrompt()">↩ Reset naar standaard</button>
+        </div>
+      </div>
+    </details>
     <div class="log-panel" id="log-panel"></div>
     <div class="error-box" id="error-box"></div>
     <div id="results">
@@ -888,9 +961,42 @@
       return scored.filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, n).map(x => x.wp);
     }
 
+    const DEFAULT_PROMPT_TEMPLATE = `Je bent een expert in gemeentelijke zaaktypecatalogi (model-DSP) voor Gemeente Heerlen.
+
+Analyseer dit document en bepaal het beste werkproces/zaaktype uit de kandidatenlijst.`;
+
+    function getPromptTemplate() {
+      return localStorage.getItem('prompt-template') || DEFAULT_PROMPT_TEMPLATE;
+    }
+
+    function resetPrompt() {
+      localStorage.removeItem('prompt-template');
+      document.getElementById('prompt-textarea').value = DEFAULT_PROMPT_TEMPLATE;
+    }
+
+    const promptTextarea = document.getElementById('prompt-textarea');
+    const promptSaved = document.getElementById('prompt-saved');
+    let promptSaveTimer;
+    promptTextarea.value = getPromptTemplate();
+    promptTextarea.addEventListener('input', () => {
+      localStorage.setItem('prompt-template', promptTextarea.value);
+      promptSaved.style.opacity = '1';
+      clearTimeout(promptSaveTimer);
+      promptSaveTimer = setTimeout(() => promptSaved.style.opacity = '0', 1500);
+    });
+
     function buildPrompt(docText, cands) {
       const list = cands.map(wp => `ID:${wp.id}|Kern:${wp.k}|Taakveld:${wp.tv || ''}|Zaaktype:${wp.zn || wp.k}|Waardering:${wp.w || '?'}|Bewaartermijn:${wp.bt || 'n.v.t.'}|Ingang:${wp.ig || '?'}|Archiefcode:${wp.ac || '?'}|Grondslag:${wp.ga || '?'}|Privacy:${wp.pc || '?'}`).join('\n');
-      return `Je bent een expert in gemeentelijke zaaktypecatalogi (model-DSP) voor Gemeente Heerlen.\n\nAnalyseer dit document en bepaal het beste werkproces/zaaktype uit de kandidatenlijst.\n\nDOCUMENT:\n${docText.slice(0, 4000)}\n\nKANDIDATEN (${cands.length} stuks):\n${list}\n\nAntwoord UITSLUITEND als geldig JSON, geen andere tekst:\n{"top3":[{"id":"BXXXX","zekerheid":85,"uitleg":"Max 2 zinnen"},{"id":"BXXXX","zekerheid":60,"uitleg":"..."},{"id":"BXXXX","zekerheid":40,"uitleg":"..."}],"samenvatting":"Wat voor document dit is in één zin"}`;
+      return `${getPromptTemplate()}
+
+DOCUMENT:
+${docText.slice(0, 4000)}
+
+KANDIDATEN (${cands.length} stuks):
+${list}
+
+Antwoord UITSLUITEND als geldig JSON, geen andere tekst:
+{"top3":[{"id":"BXXXX","zekerheid":85,"uitleg":"Max 2 zinnen"},{"id":"BXXXX","zekerheid":60,"uitleg":"..."},{"id":"BXXXX","zekerheid":40,"uitleg":"..."}],"samenvatting":"Wat voor document dit is in één zin"}`;
     }
 
     const BIV = { 'Laag (1)': '#10b981', 'Midden (2)': '#f59e0b', 'Hoog (3)': '#ef4444' };
