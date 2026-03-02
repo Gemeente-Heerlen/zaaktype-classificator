@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Zaaktype Classificator — Gemeente Heerlen</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;1,8..60,400&family=Space+Mono:wght@400;700&display=swap');
 
@@ -497,6 +498,48 @@
       mix-blend-mode: multiply
     }
 
+    mark.doc-hl {
+      background: rgba(255, 210, 0, 0.45);
+      border-radius: 2px;
+      color: inherit;
+      mix-blend-mode: multiply
+    }
+
+    .doc-content {
+      padding: 24px 28px;
+      line-height: 1.75;
+      font-size: 14px;
+      color: var(--text);
+      max-width: 100%
+    }
+
+    .doc-content h1, .doc-content h2, .doc-content h3, .doc-content h4 {
+      margin: 18px 0 8px;
+      font-weight: 600;
+      line-height: 1.3
+    }
+
+    .doc-content p { margin-bottom: 10px }
+
+    .doc-content table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 14px;
+      font-size: 13px
+    }
+
+    .doc-content td, .doc-content th {
+      border: 1px solid var(--border2);
+      padding: 6px 10px
+    }
+
+    .doc-content th { background: var(--bg3); font-weight: 600 }
+
+    .doc-content ul, .doc-content ol {
+      padding-left: 22px;
+      margin-bottom: 10px
+    }
+
     .pdf-page-label {
       position: absolute;
       bottom: 6px;
@@ -586,7 +629,7 @@
       <div class="topbar-title">Zaaktype Classificator</div>
       <div class="topbar-sub">Gemeente Heerlen · model-DSP · <span id="wp-count">0</span> werkprocessen</div>
     </div>
-    <div class="topbar-right">PDF → AI-analyse → Zaaktype + Bewaartermijn + AVG + BIV</div>
+    <div class="topbar-right">PDF / Word → AI-analyse → Zaaktype + Bewaartermijn + AVG + BIV</div>
   </div>
 
   <div class="apikey-bar">
@@ -603,9 +646,9 @@
   <div class="main">
     <div class="upload-zone" id="upload-zone">
       <div style="font-size:40px;margin-bottom:12px">📄</div>
-      <div style="font-size:18px;color:var(--text2)">Sleep een PDF hierheen of klik om te bladeren</div>
-      <div style="font-size:12px;color:var(--text4);font-family:monospace;margin-top:6px">Alleen PDF-bestanden</div>
-      <input type="file" id="file-input" accept="application/pdf" style="display:none">
+      <div style="font-size:18px;color:var(--text2)">Sleep een PDF of Word-document hierheen of klik om te bladeren</div>
+      <div style="font-size:12px;color:var(--text4);font-family:monospace;margin-top:6px">PDF of .docx bestanden</div>
+      <input type="file" id="file-input" accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">
     </div>
     <div class="log-panel" id="log-panel"></div>
     <div class="error-box" id="error-box"></div>
@@ -618,7 +661,7 @@
     <div class="pdf-section" id="pdf-section">
       <div class="card">
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-          <div class="sec-title" style="margin:0;border:none;padding:0">📄 Brondocument — gemarkeerde analyse</div>
+          <div class="sec-title" id="doc-section-title" style="margin:0;border:none;padding:0">📄 Brondocument — gemarkeerde analyse</div>
           <div class="pdf-legend"><span class="pdf-legend-swatch"></span> Overeenkomst met zaaktype</div>
         </div>
         <div class="pdf-pages" id="pdf-pages"></div>
@@ -723,6 +766,56 @@
       } catch (e) {
         pagesEl.innerHTML = `<div style="font-family:var(--mono);font-size:12px;color:var(--text3);padding:8px">⚠️ PDF weergave niet beschikbaar: ${e.message}</div>`;
       }
+    }
+
+    function renderWordSection(wp) {
+      const section = document.getElementById('pdf-section');
+      const pagesEl = document.getElementById('pdf-pages');
+      document.getElementById('doc-section-title').textContent = '📝 Brondocument (Word) — gemarkeerde analyse';
+      section.classList.add('on');
+
+      if (!extractedDocHtml) {
+        pagesEl.innerHTML = '<div style="font-family:var(--mono);font-size:12px;color:var(--text4);padding:8px">Documentweergave niet beschikbaar.</div>';
+        return;
+      }
+
+      const hlWords = [wp.k, wp.tv, wp.th, wp.zn, wp.to]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .replace(/[.,;:!?()\[\]{}\/"'@#\n\r]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 3 && !STOP.has(w));
+
+      const wrap = document.createElement('div');
+      wrap.className = 'doc-content';
+      wrap.innerHTML = extractedDocHtml;
+
+      if (hlWords.length) {
+        const walker = document.createTreeWalker(wrap, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode);
+        for (const node of nodes) {
+          const text = node.textContent;
+          if (!hlWords.some(w => text.toLowerCase().includes(w))) continue;
+          const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          let highlighted = escaped;
+          for (const w of hlWords) {
+            highlighted = highlighted.replace(
+              new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
+              '<mark class="doc-hl">$1</mark>'
+            );
+          }
+          if (highlighted !== escaped) {
+            const span = document.createElement('span');
+            span.innerHTML = highlighted;
+            node.parentNode.replaceChild(span, node);
+          }
+        }
+      }
+
+      pagesEl.innerHTML = '';
+      pagesEl.appendChild(wrap);
     }
 
     const keyInput = document.getElementById('api-key-input');
@@ -907,21 +1000,49 @@
 
     function selectTab(i) { sel = i; renderTabs(); renderDetail() }
 
-    let b64 = null, currentFile = null;
+    let b64 = null, currentFile = null, fileType = null, extractedDocText = null, extractedDocHtml = null;
     const zone = document.getElementById('upload-zone');
     const fi = document.getElementById('file-input');
 
     zone.addEventListener('click', () => { if (!currentFile) fi.click() });
     fi.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]) });
+    function isAcceptedFile(f) {
+      return f && (
+        f.type === 'application/pdf' || f.name?.endsWith('.pdf') ||
+        f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || f.name?.endsWith('.docx')
+      );
+    }
+
     zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over') });
     zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-    zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (f?.type === 'application/pdf') loadFile(f) });
+    zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (isAcceptedFile(f)) loadFile(f) });
 
     function loadFile(file) {
       currentFile = file;
+      b64 = null; extractedDocText = null;
+      const isPdf = file.type === 'application/pdf' || file.name.endsWith('.pdf');
+      fileType = isPdf ? 'pdf' : 'docx';
       const r = new FileReader();
-      r.onload = e => { b64 = e.target.result.split(',')[1]; renderZone() };
-      r.readAsDataURL(file);
+      if (isPdf) {
+        r.onload = e => { b64 = e.target.result.split(',')[1]; renderZone() };
+        r.readAsDataURL(file);
+      } else {
+        r.onload = async e => {
+          try {
+            const arrayBuffer = e.target.result;
+            const [textResult, htmlResult] = await Promise.all([
+              mammoth.extractRawText({ arrayBuffer }),
+              mammoth.convertToHtml({ arrayBuffer })
+            ]);
+            extractedDocText = textResult.value;
+            extractedDocHtml = htmlResult.value;
+            renderZone();
+          } catch (err) {
+            setError('Fout bij lezen van Word-document: ' + err.message);
+          }
+        };
+        r.readAsArrayBuffer(file);
+      }
     }
 
     function renderZone() {
@@ -939,9 +1060,10 @@
     }
 
     function resetFile() {
-      currentFile = null; b64 = null;
+      currentFile = null; b64 = null; fileType = null; extractedDocText = null; extractedDocHtml = null;
+      document.getElementById('doc-section-title').textContent = '📄 Brondocument — gemarkeerde analyse';
       zone.className = 'upload-zone';
-      zone.innerHTML = `<div style="font-size:40px;margin-bottom:12px">📄</div><div style="font-size:18px;color:var(--text2)">Sleep een PDF hierheen of klik om te bladeren</div><div style="font-size:12px;color:var(--text4);font-family:monospace;margin-top:6px">Alleen PDF-bestanden</div><input type="file" id="file-input" accept="application/pdf" style="display:none">`;
+      zone.innerHTML = `<div style="font-size:40px;margin-bottom:12px">📄</div><div style="font-size:18px;color:var(--text2)">Sleep een PDF of Word-document hierheen of klik om te bladeren</div><div style="font-size:12px;color:var(--text4);font-family:monospace;margin-top:6px">PDF of .docx bestanden</div><input type="file" id="file-input" accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">`;
       document.getElementById('file-input').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]) });
       docDate = null;
       document.getElementById('results').classList.remove('on');
@@ -992,7 +1114,8 @@
     }
 
     async function analyze() {
-      if (!b64) return;
+      if (fileType === 'pdf' && !b64) return;
+      if (fileType === 'docx' && !extractedDocText) return;
       if (!getApiKey().startsWith('sk-ant-')) {
         setError('Voer eerst een geldige Anthropic API-sleutel in (begint met sk-ant-).');
         return;
@@ -1001,17 +1124,26 @@
       btn.disabled = true; btn.textContent = '⏳ Bezig...';
       clearError();
       document.getElementById('results').classList.remove('on');
+      document.getElementById('pdf-section').classList.remove('on');
       logClear();
       log(`Bestand: ${currentFile.name} (${(currentFile.size / 1024).toFixed(0)} KB)`, 'dim');
       try {
-        log('Tekst extraheren via Claude API...');
-        const r1 = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }, { type: 'text', text: 'Extraheer alle tekst uit dit document. Geef alleen platte tekst terug, geen opmaak.' }] }] }) });
-        const d1 = await r1.json();
-        if (!r1.ok) { logRateLimit(r1); throw new Error(`API-fout bij tekstextractie: ${d1.error?.message || r1.status + ' ' + r1.statusText}`); }
-        const docText = d1.content?.[0]?.text || '';
-        if (!docText.trim()) throw new Error('Geen tekst gevonden in de PDF. Mogelijk een gescand document zonder OCR.');
+        let docText;
+        if (fileType === 'pdf') {
+          log('Tekst extraheren via Claude API...');
+          const r1 = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }, { type: 'text', text: 'Extraheer alle tekst uit dit document. Geef alleen platte tekst terug, geen opmaak.' }] }] }) });
+          const d1 = await r1.json();
+          if (!r1.ok) { logRateLimit(r1); throw new Error(`API-fout bij tekstextractie: ${d1.error?.message || r1.status + ' ' + r1.statusText}`); }
+          docText = d1.content?.[0]?.text || '';
+          if (!docText.trim()) throw new Error('Geen tekst gevonden in de PDF. Mogelijk een gescand document zonder OCR.');
+        } else {
+          docText = extractedDocText;
+          if (!docText.trim()) throw new Error('Geen tekst gevonden in het Word-document.');
+          log('Tekst ingelezen uit Word-document', 'ok');
+        }
+
         docDate = extractDocumentDate(docText);
-        log(`Tekst geëxtraheerd — ${docText.trim().split(/\s+/).length} woorden${docDate ? ' · datum: ' + formatDutchDate(docDate) : ''}`, 'ok');
+        log(`Tekst beschikbaar — ${docText.trim().split(/\s+/).length} woorden${docDate ? ' · datum: ' + formatDutchDate(docDate) : ''}`, 'ok');
 
         log(`Trefwoordzoeking in ${WP.length.toLocaleString('nl-NL')} werkprocessen...`);
         const cands = kwSearch(docText, 40);
@@ -1033,7 +1165,8 @@
         document.getElementById('results').classList.add('on');
         top3 = parsed.top3; sel = 0;
         renderTabs(); renderDetail();
-        renderPdfSection(parsed.top3[0]);
+        if (fileType === 'pdf') renderPdfSection(parsed.top3[0]);
+        else renderWordSection(parsed.top3[0]);
       } catch (e) {
         log(e.message || 'Onbekende fout.', 'error');
         setError(e.message || 'Onbekende fout.');
