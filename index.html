@@ -1017,7 +1017,7 @@ Analyseer dit document en bepaal het beste werkproces/zaaktype uit de kandidaten
     });
 
     function buildPrompt(docText, cands) {
-      const list = cands.map(wp => `ID:${wp.id}|Kern:${wp.k}|Taakveld:${wp.tv || ''}|Zaaktype:${wp.zn || wp.k}|Toelichting:${(wp.to || '').slice(0, 200)}|Waardering:${wp.w || '?'}|Bewaartermijn:${wp.bt || 'n.v.t.'}|Ingang:${wp.ig || '?'}|Archiefcode:${wp.ac || '?'}|Grondslag:${wp.ga || '?'}|Privacy:${wp.pc || '?'}`).join('\n');
+      const list = cands.map(wp => `ID:${wp.id}|Kern:${wp.k}|Taakveld:${wp.tv || ''}|Zaaktype:${wp.zn || wp.k}|Toelichting:${wp.to || ''}|Waardering:${wp.w || '?'}|Bewaartermijn:${wp.bt || 'n.v.t.'}|Ingang:${wp.ig || '?'}|Archiefcode:${wp.ac || '?'}|Grondslag:${wp.ga || '?'}|Privacy:${wp.pc || '?'}`).join('\n');
       return `${getPromptTemplate()}
 
 DOCUMENT:
